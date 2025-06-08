@@ -1,0 +1,198 @@
+// server.js
+const express = require('express');
+const bodyParser = require('body-parser');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(bodyParser.json());
+
+// In-memory data stores
+const users = {};
+const orders = [];
+
+// Serve UI and inject inline CSS/JS
+app.get('/', (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Edward SMM Panel</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f4f9;margin:0;padding:0;}
+header{background:#222;color:#fff;padding:1rem;display:flex;justify-content:space-between;align-items:center;}
+main{padding:2rem;}
+button{padding:.5rem 1rem;margin:.25rem;cursor:pointer;}
+select,input{padding:.5rem;margin:.25rem 0;width:100%;max-width:300px;}
+section{background:#fff;padding:1rem;border-radius:4px;margin-bottom:1rem;}
+.modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);}
+.modal-content{background:#fff;margin:10% auto;padding:2rem;width:80%;max-width:400px;position:relative;border-radius:4px;}
+.close{position:absolute;top:.5rem;right:.75rem;font-size:1.5rem;cursor:pointer;}
+#orders-list ul{list-style:none;padding:0;}
+#orders-list li{background:#eee;padding:.5rem;margin:.5rem 0;}
+</style>
+</head><body>
+<header>
+  <h1>Edward SMM Panel</h1>
+  <div id="auth-buttons">
+    <button onclick="showLogin()">Login</button><button onclick="showRegister()">Register</button>
+  </div>
+  <div id="user-info" style="display:none;">
+    User: <span id="user-name"></span> | Balance: $<span id="balance"></span>
+    <button onclick="logout()">Logout</button>
+  </div>
+</header>
+<main>
+  <section><h2>Pay via Easypaisa</h2><p>03202678978</p></section>
+  <section>
+    <h2>Place an Order (A–Z)</h2>
+    <form id="order-form" onsubmit="placeOrder(event)">
+      <select id="category" required>
+        <option value="" disabled selected>-- Choose Category --</option>
+        <optgroup label="A–C">
+          <option value="amazon_account">Amazon Account</option>
+          <option value="apple_id">Apple ID</option>
+          <option value="audible_account">Audible Account</option>
+        </optgroup>
+        <optgroup label="D–F">
+          <option value="discord_members">Discord Members</option>
+          <option value="deezer_streams">Deezer Streams</option>
+          <option value="facebook_likes">Facebook Likes</option>
+        </optgroup>
+        <optgroup label="G–I">
+          <option value="google_account">Google Account</option>
+          <option value="instagram_followers">Instagram Followers</option>
+          <option value="instagram_likes">Instagram Likes</option>
+        </optgroup>
+        <optgroup label="J–L">
+          <option value="linkedin_followers">LinkedIn Followers</option>
+          <option value="linkedin_likes">LinkedIn Likes</option>
+          <option value="livestream_views">Livestream Views</option>
+        </optgroup>
+        <optgroup label="M–O">
+          <option value="messenger_members">Messenger Members</option>
+          <option value="myspace_likes">MySpace Likes</option>
+          <option value="netflix_account">Netflix Account</option>
+        </optgroup>
+        <optgroup label="P–R">
+          <option value="pinterest_followers">Pinterest Followers</option>
+          <option value="pinterest_pins">Pinterest Pins</option>
+          <option value="reddit_upvotes">Reddit Upvotes</option>
+        </optgroup>
+        <optgroup label="S–U">
+          <option value="snapchat_followers">Snapchat Followers</option>
+          <option value="soundcloud_streams">SoundCloud Streams</option>
+          <option value="spotify_plays">Spotify Plays</option>
+          <option value="telegram_members">Telegram Members</option>
+          <option value="tiktok_likes">TikTok Likes</option>
+          <option value="twitter_followers">Twitter Followers</option>
+          <option value="twitter_retweets">Twitter Retweets</option>
+          <option value="twitch_followers">Twitch Followers</option>
+        </optgroup>
+        <optgroup label="V–Z">
+          <option value="vimeo_views">Vimeo Views</option>
+          <option value="whatsapp_channel">WhatsApp Channel</option>
+          <option value="xbox_live">Xbox Live</option>
+          <option value="youtube_views">YouTube Views</option>
+          <option value="youtube_subs">YouTube Subscribers</option>
+        </optgroup>
+      </select>
+      <input type="number" id="qty" placeholder="Quantity" required min="1">
+      <button type="submit">Order</button>
+    </form>
+  </section>
+  <section id="orders-list" style="display:none;"><h2>Your Orders</h2><ul id="orders"></ul></section>
+</main>
+<div id="auth-modal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="hideModal()">&times;</span>
+    <form id="auth" onsubmit="handleAuth(event)">
+      <h2 id="auth-title">Login</h2>
+      <input id="u" type="text" placeholder="Username" required>
+      <input id="p" type="password" placeholder="Password" required>
+      <button type="submit">Submit</button>
+      <p id="toggle-prompt"></p>
+    </form>
+  </div>
+</div>
+<script>
+let me=false;
+function showLogin(){me=false; openModal();}
+function showRegister(){me=true; openModal();}
+function openModal(){
+  document.getElementById('auth-title').innerText=me?'Register':'Login';
+  document.getElementById('toggle-prompt').innerHTML=me?
+    'Already have account? <a href="#" onclick="toggle()">Login</a>':
+    'No account? <a href="#" onclick="toggle()">Register</a>';
+  document.getElementById('auth-modal').style.display='block';
+}
+function hideModal(){document.getElementById('auth-modal').style.display='none';}
+function toggle(){me=!me; openModal();}
+function handleAuth(e){
+  e.preventDefault();
+  const u=document.getElementById('u').value, p=document.getElementById('p').value;
+  fetch(me?'/auth/register':'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({u,p})})
+    .then(r=>r.json()).then(r=>{
+      if(r.success){hideModal(); init(r.user,r.balance);} else alert(r.msg);
+    });
+}
+function init(u,b){
+  document.getElementById('auth-buttons').style.display='none';
+  document.getElementById('user-info').style.display='block';
+  document.getElementById('user-name').innerText=u;
+  document.getElementById('balance').innerText=b.toFixed(2);
+  document.getElementById('orders-list').style.display='block';
+}
+function logout(){
+  document.getElementById('auth-buttons').style.display='block';
+  document.getElementById('user-info').style.display='none';
+  document.getElementById('orders-list').style.display='none';
+}
+function placeOrder(e){
+  e.preventDefault();
+  fetch('/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    category:document.getElementById('category').value,quantity:+document.getElementById('qty').value
+  })}).then(r=>r.json()).then(r=>{
+    if(r.success){
+      const li=document.createElement('li');
+      li.innerText=\`[\${r.order.id}] \${r.order.category} x\${r.order.quantity} → \${r.order.status}\`;
+      document.getElementById('orders').appendChild(li);
+      document.getElementById('balance').innerText=r.balance.toFixed(2);
+    }else alert('Order failed');
+  });
+}
+</script>
+</body></html>
+  `);
+});
+
+// Auth routes
+app.post('/auth/register', (req,res) => {
+  const {u,p} = req.body;
+  if (users[u]) return res.json({success:false,msg:'User exists'});
+  users[u] = { pass:p, balance: 10, orders: [] };
+  res.json({success:true,user:u,balance:10});
+});
+app.post('/auth/login', (req,res) => {
+  const {u,p} = req.body;
+  if (!users[u] || users[u].pass !== p) return res.json({success:false,msg:'Invalid'});
+  res.json({success:true,user:u,balance:users[u].balance});
+});
+
+// Order route
+app.post('/order', (req,res) => {
+  const {user,category,quantity} = {...req.body, user:req.body.u||req.body.u};
+  const u = req.body.user || Object.keys(users)[0]; // simplistic
+  if (!u || !users[u]) return res.json({success:false});
+  const id = Date.now();
+  const order = { id, category, quantity, status:'processing' };
+  orders.push(order);
+  users[u].orders.push(order);
+  users[u].balance -= quantity * 0.01;
+  res.json({ success:true, order, balance:users[u].balance });
+});
+
+// Payment stub
+app.post('/payment', (req,res) => {
+  res.json({ success:true, msg:'Payment stub OK' });
+});
+
+app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
